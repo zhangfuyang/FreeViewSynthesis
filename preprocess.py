@@ -5,8 +5,8 @@ from PIL import Image
 import cv2
 
 
-original_data_dir = './test'
-output_data_dir = './processed_test2'
+original_data_dir = 'PATH_to_scannet/test'
+output_data_dir = 'PATH_to_scannet/processed_test2'
 
 def filter_valid_id(data_dir, scene_name, id_list):
     empty_lst=[]
