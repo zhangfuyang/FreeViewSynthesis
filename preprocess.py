@@ -130,7 +130,7 @@ for scene_name in os.listdir(original_data_dir):
         if 'test' in original_data_dir:
             skip = True
             for tt in range(id_-3, id_+4):
-                if os.path.exists(os.path.join(scene_path, 'count', f'cnt_{id_}.npy')):
+                if os.path.exists(os.path.join(scene_path, 'count', f'cnt_{tt}.npy')):
                     skip = False
             if skip:
                 count = np.zeros(len(all_id_lists))
@@ -143,6 +143,7 @@ for scene_name in os.listdir(original_data_dir):
                 temp_id = deta_id + id_
                 if os.path.exists(os.path.join(scene_path, 'count', f'cnt_{temp_id}.npy')):
                     dd = np.load(os.path.join(scene_path, 'count', f'cnt_{temp_id}.npy'), allow_pickle=True).tolist()
+                    break
         
         count = []
         for other_idx in range(len(all_id_lists)):
