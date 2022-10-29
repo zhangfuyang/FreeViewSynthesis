@@ -53,7 +53,7 @@ def get_parser(additional_commands=None):
     parser.add_argument("--log-env-info", type=utils.str2bool, default=False)
     parser.add_argument("--iter", type=str, nargs="*", default=[])
     parser.add_argument("--eval-net-root", type=str, default="")
-    parser.add_argument("--experiments-root", type=str, default="./experiments")
+    parser.add_argument("--experiments-root", type=str, default="./experiments_scannet2")
     parser.add_argument("--slurm-cmd", type=str, default="resume")
     parser.add_argument("--slurm-queue", type=str, default="gpu")
     parser.add_argument("--slurm-n-gpus", type=int, default=1)
@@ -543,7 +543,10 @@ class Worker(object):
         err_list = []
         for v in errs.values():
             if isinstance(v, (list, np.ndarray)):
-                err_list.extend(v.ravel())
+                if np.array(v).ndim > 1:
+                    err_list.extend(v.ravel())
+                else:
+                    err_list.extend(v)
             else:
                 err_list.append(v)
         err = sum(err_list)

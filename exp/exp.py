@@ -193,12 +193,34 @@ class Worker(co.mytorch.Worker):
         )
         return dset
 
+    def get_train_set_scannet(self, dset):
+        _dir = config.scannet_root / "processed_train2" / dset
+        num = len(list(_dir.glob('*.jpg')))
+        start = int(num * 0.7)
+        tgt_ind = [x for x in range(start, num)]
+        
+        dset = self.get_pw_dataset(
+            name=f'scannet_{dset}',
+            ibr_dir=_dir,
+            im_size=None,
+            pad_width=16,
+            patch=(self.train_patch, self.train_patch),
+            n_nbs=self.train_n_nbs,
+            nbs_mode=self.train_nbs_mode,
+            train=True,
+            tgt_ind=tgt_ind
+        )
+        return dset
+
     def get_train_set(self):
         logging.info("Create train datasets")
         dsets = co.mytorch.MultiDataset(name="train")
         if "tat" in self.train_dsets:
             for dset in config.tat_train_sets:
                 dsets.append(self.get_train_set_tat(dset))
+        if "scannet" in self.train_dsets:
+            for dset in config.scannet_train_sets:
+                dsets.append(self.get_train_set_scannet(dset))
         return dsets
 
     def get_eval_set_tat(self, dset, mode):
@@ -222,10 +244,37 @@ class Worker(co.mytorch.Worker):
             train=False,
         )
         return dset
+    
+    def get_eval_set_scannet(self, dset, mode):
+        _dir = config.scannet_root / "processed_test2" / dset
+        if mode == "all":
+            tgt_ind = None
+        elif mode == "subseq":
+            num = len(list(_dir.glob('*.jpg')))
+            start = int(num * 0.7)
+            tgt_ind = [x for x in range(start, num)]
+        dset = self.get_pw_dataset(
+            name=f'scannet_{dset}',
+            ibr_dir=_dir,
+            im_size=None,
+            pad_width=16,
+            patch=None,
+            n_nbs=self.eval_n_nbs,
+            nbs_mode="argmax",
+            train=False,
+            tgt_ind=tgt_ind
+        )
+        return dset
 
     def get_eval_sets(self):
         logging.info("Create eval datasets")
         eval_sets = []
+
+        if "scannet" in self.eval_dsets:
+            for dset in config.scannet_eval_sets:
+                dset = self.get_eval_set_scannet(dset, "subseq")
+                eval_sets.append(dset)
+
         if "tat" in self.eval_dsets:
             for dset in config.tat_eval_sets:
                 dset = self.get_eval_set_tat(dset, "all")
@@ -322,8 +371,8 @@ class Worker(co.mytorch.Worker):
                 out_im[tgt_dm >= 1e6] = 255
             # PIL.Image.fromarray(out_im).save(out_dir / f"{bidx:04d}_es.png")
             PIL.Image.fromarray(out_im).save(out_dir / f"s{bidx:04d}_es.jpg")
-            # out_im = (255 * ta[b]).astype(np.uint8)
-            # PIL.Image.fromarray(out_im).save(out_dir / f"{bidx:04d}_ta.png")
+            out_im = (255 * ta[b]).astype(np.uint8)
+            PIL.Image.fromarray(out_im).save(out_dir / f"{bidx:04d}_ta.png")
 
             # tgt_dm[tgt_dm >= 1e9] = np.NaN
             # tgt_dm[tgt_dm <= 0] = np.NaN
@@ -384,10 +433,14 @@ class Worker(co.mytorch.Worker):
 if __name__ == "__main__":
     parser = co.mytorch.get_parser()
     parser.add_argument("--net", type=str, required=True)
-    parser.add_argument("--train-dsets", nargs="+", type=str, default=["tat"])
+    #parser.add_argument("--train-dsets", nargs="+", type=str, default=["tat"])
+    parser.add_argument("--train-dsets", nargs="+", type=str, default=["scannet"])
     parser.add_argument(
-        "--eval-dsets", nargs="+", type=str, default=["tat", "tat-subseq"]
+        "--eval-dsets", nargs="+", type=str, default=["scannet"]
     )
+    #parser.add_argument(
+    #    "--eval-dsets", nargs="+", type=str, default=["tat", "tat-subseq"]
+    #)
     parser.add_argument("--train-n-nbs", type=int, default=5)
     parser.add_argument("--train-scale", type=float, default=0.25)
     parser.add_argument("--train-patch", type=int, default=192)
@@ -408,10 +461,11 @@ if __name__ == "__main__":
         train_patch=args.train_patch,
         eval_n_nbs=args.eval_n_nbs,
         eval_scale=args.eval_scale,
+        n_train_iters=750000,
     )
     worker.log_debug = args.log_debug
-    worker.save_frequency = co.mytorch.Frequency(hours=2)
-    worker.eval_frequency = co.mytorch.Frequency(hours=2)
+    worker.save_frequency = co.mytorch.Frequency(hours=4)
+    worker.eval_frequency = co.mytorch.Frequency(hours=4)
     worker.train_batch_size = 1
     worker.eval_batch_size = 1
     worker.train_batch_acc_steps = 1

@@ -14,6 +14,21 @@ tat_root = None
 colmap_bin_path = None
 lpips_root = None
 
+scannet_train_sets = [
+    "scene0057_00", "scene0101_04", 
+    "scene0147_00", "scene0241_01", 
+    "scene0545_02", "scene0085_00",  
+    "scene0112_00", "scene0196_00",  
+    "scene0424_02", "scene0706_00"
+]
+
+scannet_eval_sets = [
+    "scene0707_00", "scene0709_00",  
+    "scene0711_00", "scene0713_00",  
+    "scene0715_00", "scene0708_00",  
+    "scene0710_00", "scene0712_00",  
+    "scene0714_00", "scene0716_00"
+]
 
 tat_train_sets = [
     "training/Barn",
@@ -60,4 +75,6 @@ dtu_source_ind = [idx for idx in range(49) if idx not in dtu_interpolation_ind +
 lpips_root = None
 
 # TODO: adjust path
-tat_root = Path("/path/to/colmap_tat/")
+#tat_root = Path("/path/to/colmap_tat/")
+tat_root = Path("/local-scratch/fuyang/freeview/data/")
+scannet_root = Path("/local-scratch/fuyang/freeview/scannet/")
