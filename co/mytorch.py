@@ -981,15 +981,6 @@ class Worker(object):
                     logging.info("")
                     logging.info("=" * 80)
 
-                # update lr
-                if lr_scheduler is not None:
-                    old_lr = lr_scheduler.get_lr()
-                    lr_scheduler.step()
-                    new_lr = lr_scheduler.get_lr()
-                    if old_lr != new_lr:
-                        logging.info(
-                            f"Update LR {old_lr} => {new_lr} via lr_scheduler iter={iter}"
-                        )
 
                 self.stopwatch.start("total")
                 self.stopwatch.start("data")
@@ -998,7 +989,13 @@ class Worker(object):
                 torch.cuda.synchronize(self.device)
             
             if lr_scheduler is not None:
+                old_lr = lr_scheduler.get_lr()
                 lr_scheduler.step()
+                new_lr = lr_scheduler.get_lr()
+                if old_lr != new_lr:
+                    logging.info(
+                        f"Update LR {old_lr} => {new_lr} via lr_scheduler iter={iter}"
+                    )
 
         logging.info("=" * 80)
         logging.info("Finished training")
