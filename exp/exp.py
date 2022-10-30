@@ -454,12 +454,12 @@ def main_func(rank, world_size, args):
         worker.save_frequency = co.mytorch.Frequency(hours=3)
         worker.eval_frequency = co.mytorch.Frequency(hours=3)
 
-    worker.train_batch_size = 1
-    worker.eval_batch_size = 1
+    worker.train_batch_size = args.batch_size
+    worker.eval_batch_size = args.batch_size
     worker.train_batch_acc_steps = 1
 
     worker_objects = co.mytorch.WorkerObjects(
-        optim_f=lambda net: torch.optim.Adam(net.parameters(), lr=1e-4 * world_size)
+        optim_f=lambda net: torch.optim.Adam(net.parameters(), lr=1e-4 * world_size * worker.train_batch_size)
     )
 
     worker_objects.net_f = lambda: modules.get_rnn_net(
@@ -501,6 +501,7 @@ if __name__ == "__main__":
     parser.add_argument("--train-n-nbs", type=int, default=5)
     parser.add_argument("--train-scale", type=float, default=0.25)
     parser.add_argument("--train-patch", type=int, default=192)
+    parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--eval-n-nbs", type=int, default=5)
     parser.add_argument("--eval-scale", type=float, default=-1)
     parser.add_argument("--log-debug", type=str, nargs="*", default=[])
