@@ -626,7 +626,7 @@ class Worker(object):
                 logging.info(f"[EVAL] no network params for iter {iter_str}")
 
     def eval(self, iter, net, eval_sets, epoch="x"):
-        for eval_set_idx, eval_set in enumerate(eval_sets[:2]):
+        for eval_set_idx, eval_set in enumerate(eval_sets):
             logging.info("")
             logging.info("=" * 80)
             logging.info(f"Evaluating set {eval_set.name}")
@@ -1002,4 +1002,10 @@ class Worker(object):
         logging.info("=" * 80)
         logging.info("Finished training")
         log_datetime()
+
         logging.info("=" * 80)
+        self.eval(
+            iter, net, eval_sets, epoch=self.save_frequency.n_resets
+        )
+        if self.device != torch.device("cpu"):
+            torch.cuda.synchronize(self.device)
