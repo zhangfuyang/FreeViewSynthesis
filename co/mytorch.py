@@ -1,3 +1,4 @@
+from tabnanny import verbose
 import numpy as np
 import torch
 import torch.utils.data
@@ -105,11 +106,11 @@ class WorkerObjects(object):
     def get_optimizer(self, net):
         return self.optim_f(net)
 
-    def get_lr_scheduler(self, optimizer):
+    def get_lr_scheduler(self, optimizer, **kwargs):
         return (
             None
             if self.lr_scheduler_f is None
-            else self.lr_scheduler_f(optimizer)
+            else self.lr_scheduler_f(optimizer, **kwargs)
         )
 
 
@@ -754,7 +755,6 @@ class Worker(object):
         net = worker_objects.get_net()
         net = net.to(self.device)
         optimizer = worker_objects.get_optimizer(net)
-        lr_scheduler = worker_objects.get_lr_scheduler(optimizer)
 
         # laod state if existent
         iter = 0
@@ -796,16 +796,6 @@ class Worker(object):
                 if torch.cuda.is_available():
                     torch.cuda.set_rng_state(state["gpu_rng_state"].to("cpu"))
 
-        # update lr_scheduler
-        if lr_scheduler is not None:
-            old_lr = lr_scheduler.get_lr()
-            for _ in range(iter):
-                lr_scheduler.step()
-            new_lr = lr_scheduler.get_lr()
-            if old_lr != new_lr:
-                logging.info(
-                    f"(RESUME) Update LR {old_lr} => {new_lr} via lr_scheduler iter={iter}"
-                )
 
         # compute n_train_iters based on number of samples in train set
         if self.n_train_iters < 0:
@@ -832,6 +822,7 @@ class Worker(object):
         self.stopwatch.start("total")
         self.stopwatch.start("data")
 
+        lr_scheduler = worker_objects.get_lr_scheduler(optimizer, epoch_num//3, gamma=0.5, verbose=True)
         
         for epoch in range(epoch_num):
             if self.world_size > 1:
@@ -1005,6 +996,9 @@ class Worker(object):
                 # end of iter loop
             if self.device != torch.device("cpu"):
                 torch.cuda.synchronize(self.device)
+            
+            if lr_scheduler is not None:
+                lr_scheduler.step()
 
         logging.info("=" * 80)
         logging.info("Finished training")

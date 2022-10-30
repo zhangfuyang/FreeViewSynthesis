@@ -459,9 +459,16 @@ def main_func(rank, world_size, args):
     worker.eval_batch_size = args.batch_size
     worker.train_batch_acc_steps = 1
 
-    worker_objects = co.mytorch.WorkerObjects(
-        optim_f=lambda net: torch.optim.Adam(net.parameters(), lr=1e-4 * world_size * worker.train_batch_size)
-    )
+    if args.our_loss == 1:
+        lr_scheduler = torch.optim.lr_scheduler.StepLR
+        worker_objects = co.mytorch.WorkerObjects(
+            optim_f=lambda net: torch.optim.AdamW(net.parameters(), lr=1e-4 * world_size * worker.train_batch_size),
+            lr_scheduler_f=lr_scheduler
+        )
+    else:
+        worker_objects = co.mytorch.WorkerObjects(
+            optim_f=lambda net: torch.optim.Adam(net.parameters(), lr=1e-4 * world_size * worker.train_batch_size)
+        )
 
     worker_objects.net_f = lambda: modules.get_rnn_net(
             enc_net="vgg16unet3", merge_net="gruunet4.64.3"
@@ -507,6 +514,8 @@ if __name__ == "__main__":
     parser.add_argument("--eval-n-nbs", type=int, default=5)
     parser.add_argument("--eval-scale", type=float, default=-1)
     parser.add_argument("--log-debug", type=str, nargs="*", default=[])
+    parser.add_argument("--our_loss", type=int, default=1)
+
     # initialization multi gpu
     parser.add_argument("--world_size", default=2, type=int, help='number of distributed processes')
     parser.add_argument('--dist-url', default='env://', help='url used to set up distributed training')
