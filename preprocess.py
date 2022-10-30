@@ -5,8 +5,9 @@ from PIL import Image
 import cv2
 
 
-original_data_dir = 'PATH_to_scannet/test'
-output_data_dir = 'PATH_to_scannet/processed_test2'
+original_data_root = '/local-scratch/shitaot/generalized_nerf/data/scannet/'
+original_data_dir = os.path.join(original_data_root, 'train')
+output_data_dir = './processed_train'
 
 def filter_valid_id(data_dir, scene_name, id_list):
     empty_lst=[]
@@ -95,7 +96,7 @@ for scene_name in os.listdir(original_data_dir):
     os.makedirs(output_scene_path, exist_ok=True)
 
     image_ids = [t for t in range(len(os.listdir(rgb_dir)))]
-    all_id_lists = filter_valid_id('./', scene_name, image_ids)
+    all_id_lists = filter_valid_id(original_data_root, scene_name, image_ids)
 
     all_id_lists = all_id_lists[::5]
 

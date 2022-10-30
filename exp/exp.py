@@ -202,7 +202,7 @@ class Worker(co.mytorch.Worker):
         return dset
 
     def get_train_set_scannet(self, dset):
-        _dir = config.scannet_root / "processed_train2" / dset
+        _dir = config.scannet_root / "processed_train" / dset
         num = len(list(_dir.glob('*.jpg')))
         start = int(num * 0.7)
         tgt_ind = [x for x in range(start, num)]
@@ -216,7 +216,7 @@ class Worker(co.mytorch.Worker):
             n_nbs=self.train_n_nbs,
             nbs_mode=self.train_nbs_mode,
             train=True,
-            tgt_ind=tgt_ind
+            tgt_ind=None
         )
         return dset
 
@@ -254,7 +254,7 @@ class Worker(co.mytorch.Worker):
         return dset
     
     def get_eval_set_scannet(self, dset, mode):
-        _dir = config.scannet_root / "processed_test2" / dset
+        _dir = config.scannet_root / "processed_test" / dset
         if mode == "all":
             tgt_ind = None
         elif mode == "subseq":
