@@ -822,7 +822,7 @@ class Worker(object):
         self.stopwatch.start("total")
         self.stopwatch.start("data")
 
-        lr_scheduler = worker_objects.get_lr_scheduler(optimizer, epoch_num//3, gamma=0.5, verbose=True)
+        lr_scheduler = worker_objects.get_lr_scheduler(optimizer, step_size=epoch_num//3, gamma=0.5, verbose=True)
         
         for epoch in range(epoch_num):
             if self.world_size > 1:
