@@ -192,7 +192,7 @@ class Worker(co.mytorch.Worker):
         dset = self.get_pw_dataset(
             name=f'tat_{dset.replace("/", "_")}',
             ibr_dir=ibr_dir,
-            im_size=None,
+            im_size=(288, 528),
             pad_width=16,
             patch=(self.train_patch, self.train_patch),
             n_nbs=self.train_n_nbs,
@@ -243,7 +243,7 @@ class Worker(co.mytorch.Worker):
         dset = self.get_pw_dataset(
             name=f'tat_{mode}_{dset.replace("/", "_")}',
             ibr_dir=ibr_dir,
-            im_size=None,
+            im_size=(288,528),
             pad_width=16,
             patch=None,
             n_nbs=self.eval_n_nbs,
@@ -423,9 +423,10 @@ def main_func(rank, world_size, args):
     print('| distributed init (rank {}): {}'.format(
         args.rank, args.dist_url), flush=True)
     
-    dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
-                            world_size=args.world_size, rank=args.rank)
-    dist.barrier()
+    if world_size > 1:
+        dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
+                                world_size=args.world_size, rank=args.rank)
+        dist.barrier()
 
     rank = args.rank
     device = torch.device(args.device)
@@ -468,7 +469,8 @@ def main_func(rank, world_size, args):
 
     worker.do(args, worker_objects)
 
-    cleanup()
+    if world_size > 1:
+        cleanup()
 
 
 if __name__ == "__main__":
@@ -501,7 +503,7 @@ if __name__ == "__main__":
     parser.add_argument("--train-n-nbs", type=int, default=5)
     parser.add_argument("--train-scale", type=float, default=0.25)
     parser.add_argument("--train-patch", type=int, default=192)
-    parser.add_argument("--batch_size", type=int, default=1)
+    parser.add_argument("--batch_size", type=int, default=2)
     parser.add_argument("--eval-n-nbs", type=int, default=5)
     parser.add_argument("--eval-scale", type=float, default=-1)
     parser.add_argument("--log-debug", type=str, nargs="*", default=[])
@@ -513,11 +515,14 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     world_size = args.world_size
-    processes = []
-    for rank in range(world_size):
-        p = Process(target=main_func, args=(rank, world_size, args))
-        p.start()
-        processes.append(p)
-    for p in processes:
-        p.join()
+    if world_size == 1:
+        main_func(0, world_size, args)
+    else:
+        processes = []
+        for rank in range(world_size):
+            p = Process(target=main_func, args=(rank, world_size, args))
+            p.start()
+            processes.append(p)
+        for p in processes:
+            p.join()
 

@@ -741,11 +741,14 @@ class Worker(object):
         train_set = self.get_train_set()
         eval_sets = self.get_eval_sets()
 
-        train_sampler = torch.utils.data.distributed.DistributedSampler(train_set)
+        if self.world_size > 1:
+            train_sampler = torch.utils.data.distributed.DistributedSampler(train_set)
+        else:
+            train_sampler = torch.utils.data.RandomSampler(train_set)
 
         train_batch_sampler = torch.utils.data.BatchSampler(train_sampler, self.train_batch_size, drop_last=True)
         train_loader = torch.utils.data.DataLoader(train_set, batch_sampler=train_batch_sampler,
-                                                   pin_memory=True, num_workers=8)
+                                                   pin_memory=True, num_workers=self.num_workers)
         
         # get worker objects
         net = worker_objects.get_net()
@@ -783,14 +786,15 @@ class Worker(object):
                 torch.save(state_dict, str(state_tmp_path))
                 logging.info(f"rename {state_tmp_path} to {state_path}")
                 state_tmp_path.rename(state_path)
-            dist.barrier()
-            state_path = self.checkpoint_root / "state.dict"
-            state = torch.load(str(state_path), map_location=self.device)
-            net.load_state_dict(state["state_dict"])
-            optimizer.load_state_dict(state["optimizer"])
-            torch.set_rng_state(state["cpu_rng_state"].to("cpu"))
-            if torch.cuda.is_available():
-                torch.cuda.set_rng_state(state["gpu_rng_state"].to("cpu"))
+            if self.world_size > 1:
+                dist.barrier()
+                state_path = self.checkpoint_root / "state.dict"
+                state = torch.load(str(state_path), map_location=self.device)
+                net.load_state_dict(state["state_dict"])
+                optimizer.load_state_dict(state["optimizer"])
+                torch.set_rng_state(state["cpu_rng_state"].to("cpu"))
+                if torch.cuda.is_available():
+                    torch.cuda.set_rng_state(state["gpu_rng_state"].to("cpu"))
 
         # update lr_scheduler
         if lr_scheduler is not None:
@@ -807,7 +811,8 @@ class Worker(object):
         if self.n_train_iters < 0:
             self.n_train_iters = -self.n_train_iters * len(train_set)
 
-        net = torch.nn.parallel.DistributedDataParallel(net, device_ids=[self.rank])
+        if self.world_size > 1:
+            net = torch.nn.parallel.DistributedDataParallel(net, device_ids=[self.rank])
 
         # set-up training variables
         iter_range = list(range(iter, self.n_train_iters))
@@ -829,7 +834,8 @@ class Worker(object):
 
         
         for epoch in range(epoch_num):
-            train_sampler.set_epoch(epoch)
+            if self.world_size > 1:
+                train_sampler.set_epoch(epoch)
             for idx, data in enumerate(train_loader):
                 iter = idx + epoch * len(train_loader)
                 # set-up
@@ -884,9 +890,10 @@ class Worker(object):
                 if self.train_batch_acc_steps > 1:
                     err = err / self.train_batch_acc_steps
                 err.backward()
-                with torch.no_grad():
-                    dist.all_reduce(err) 
-                    err /= self.world_size
+                if self.world_size > 1:
+                    with torch.no_grad():
+                        dist.all_reduce(err) 
+                        err /= self.world_size
 
                 #self.callback_train_post_backward(
                 #    net=net, errs=err_items, output=output, iter=iter

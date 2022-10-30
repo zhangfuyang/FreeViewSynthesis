@@ -181,6 +181,7 @@ class Dataset(co.mytorch.BaseDataset):
 
         if self.tgt_im_paths:
             tgt = load(self.tgt_im_paths[idx])
+            tgt = self.pad(tgt)
             ret["tgt"] = tgt[
                 :,
                 patch[0] : min(tgt.shape[1], patch[1]),
