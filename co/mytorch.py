@@ -16,6 +16,10 @@ import gc
 from . import utils
 from . import sqlite
 
+import torch.distributed as dist
+
+def cleanup():
+    dist.destroy_process_group()
 
 def log_datetime():
     logging.info(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
@@ -269,6 +273,11 @@ class MultiDataset(torch.utils.data.Dataset):
 class Worker(object):
     def __init__(
         self,
+        # distributed
+        rank,
+        device,
+        world_size,
+        #
         experiments_root="./experiments",
         experiment_name=None,
         n_train_iters=-128,
@@ -287,6 +296,9 @@ class Worker(object):
         log_debug=None,
     ):
         self.experiments_root = Path(experiments_root)
+        self.rank = rank
+        self.device = device
+        self.world_size = world_size
         if experiment_name is None:
             experiment_name = self.exec_script_name()
         self.experiment_name = experiment_name
@@ -297,13 +309,13 @@ class Worker(object):
         self.eval_batch_size = eval_batch_size
         self.num_workers = num_workers
         self.save_frequency = (
-            save_frequency if save_frequency is not None else Frequency(iter=-1)
+            save_frequency if save_frequency is not None else Frequency(iter=0)
         )
         self.eval_frequency = (
-            eval_frequency if eval_frequency is not None else Frequency(iter=-1)
+            eval_frequency if eval_frequency is not None else Frequency(iter=0)
         )
-        self.train_device = train_device
-        self.eval_device = eval_device
+        self.train_device = self.device
+        self.eval_device = self.device
         self.clip_gradient_value = clip_gradient_value
         self.clip_gradient_norm = clip_gradient_norm
         self.empty_cache_per_batch = empty_cache_per_batch
@@ -319,9 +331,18 @@ class Worker(object):
         ]
 
     def setup_experiment(self):
-        hostname = socket.gethostname()
-        self.exp_out_root = self.experiments_root / self.experiment_name
-        self.exp_out_root.mkdir(parents=True, exist_ok=True)
+        if self.rank == 0:
+            hostname = socket.gethostname()
+            self.exp_out_root = self.experiments_root / self.experiment_name
+            self.exp_out_root.mkdir(parents=True, exist_ok=True)
+            self.checkpoint_root = self.exp_out_root
+        else:
+            hostname = socket.gethostname()
+            self.exp_out_root = self.experiments_root / self.experiment_name
+            self.checkpoint_root = self.exp_out_root
+            
+            self.exp_out_root = Path('/tmp/freeview/') / str(self.rank)
+            self.exp_out_root.mkdir(parents=True, exist_ok=True)
 
         utils.logging_setup(
             out_path=self.exp_out_root / f"train.{hostname}.log"
@@ -605,7 +626,7 @@ class Worker(object):
                 logging.info(f"[EVAL] no network params for iter {iter_str}")
 
     def eval(self, iter, net, eval_sets, epoch="x"):
-        for eval_set_idx, eval_set in enumerate(eval_sets):
+        for eval_set_idx, eval_set in enumerate(eval_sets[:2]):
             logging.info("")
             logging.info("=" * 80)
             logging.info(f"Evaluating set {eval_set.name}")
@@ -654,8 +675,8 @@ class Worker(object):
 
                 self.stopwatch.start("forward")
                 output = self.net_forward(net, train=False, iter=iter)
-                if "cuda" in self.eval_device:
-                    torch.cuda.synchronize()
+                #if "cuda" in self.eval_device:
+                #    torch.cuda.synchronize()
                 # logging.info("--------- forward ----------")
                 # log_cuda_mem()
                 self.stopwatch.stop("forward")
@@ -720,21 +741,51 @@ class Worker(object):
         train_set = self.get_train_set()
         eval_sets = self.get_eval_sets()
 
+        train_sampler = torch.utils.data.distributed.DistributedSampler(train_set)
+
+        train_batch_sampler = torch.utils.data.BatchSampler(train_sampler, self.train_batch_size, drop_last=True)
+        train_loader = torch.utils.data.DataLoader(train_set, batch_sampler=train_batch_sampler,
+                                                   pin_memory=True, num_workers=8)
+        
         # get worker objects
         net = worker_objects.get_net()
-        net = net.to(self.train_device)
+        net = net.to(self.device)
         optimizer = worker_objects.get_optimizer(net)
         lr_scheduler = worker_objects.get_lr_scheduler(optimizer)
 
         # laod state if existent
         iter = 0
-        state_path = self.exp_out_root / "state.dict"
+        state_path = self.checkpoint_root / "state.dict"
         if resume and state_path.exists():
             logging.info("=" * 80)
             logging.info(f"Loading state from {state_path}")
             logging.info("=" * 80)
-            state = torch.load(str(state_path), map_location=self.train_device)
+            state = torch.load(str(state_path), map_location=self.device)
             iter = state["iter"] + 1
+            net.load_state_dict(state["state_dict"])
+            optimizer.load_state_dict(state["optimizer"])
+            torch.set_rng_state(state["cpu_rng_state"].to("cpu"))
+            if torch.cuda.is_available():
+                torch.cuda.set_rng_state(state["gpu_rng_state"].to("cpu"))
+        else:
+            if self.rank == 0:
+                # store state
+                state_dict = {
+                    "iter": iter,
+                    "state_dict": net.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "cpu_rng_state": torch.get_rng_state(),
+                }
+                if torch.cuda.is_available():
+                    state_dict["gpu_rng_state"] = torch.cuda.get_rng_state()
+                state_tmp_path = self.exp_out_root / "state.dict.tmp"
+                logging.info(f"save state to {state_tmp_path}")
+                torch.save(state_dict, str(state_tmp_path))
+                logging.info(f"rename {state_tmp_path} to {state_path}")
+                state_tmp_path.rename(state_path)
+            dist.barrier()
+            state_path = self.checkpoint_root / "state.dict"
+            state = torch.load(str(state_path), map_location=self.device)
             net.load_state_dict(state["state_dict"])
             optimizer.load_state_dict(state["optimizer"])
             torch.set_rng_state(state["cpu_rng_state"].to("cpu"))
@@ -756,10 +807,12 @@ class Worker(object):
         if self.n_train_iters < 0:
             self.n_train_iters = -self.n_train_iters * len(train_set)
 
+        net = torch.nn.parallel.DistributedDataParallel(net, device_ids=[self.rank])
+
         # set-up training variables
-        train_loader = self.get_train_data_loader(train_set, iter)
         iter_range = list(range(iter, self.n_train_iters))
-        eta_total = utils.ETA(length=len(iter_range))
+        epoch_num = self.n_train_iters // len(train_set) + 1
+        eta_total = utils.ETA(length=epoch_num*len(train_loader))
         mean_loss = utils.CumulativeMovingAverage()
         net.train()
         optimizer.zero_grad()
@@ -773,167 +826,178 @@ class Worker(object):
         self.stopwatch.reset()
         self.stopwatch.start("total")
         self.stopwatch.start("data")
-        for iter, data in zip(iter_range, train_loader):
-            # set-up
-            self.train_iter_messages = [f"train {iter+1}/{self.n_train_iters}"]
 
-            # copy data
-            self.copy_data(data, device=self.train_device, train=True)
-            self.stopwatch.stop("data")
+        
+        for epoch in range(epoch_num):
+            train_sampler.set_epoch(epoch)
+            for idx, data in enumerate(train_loader):
+                iter = idx + epoch * len(train_loader)
+                # set-up
+                self.train_iter_messages = [f"train {iter+1}/{len(train_loader)*epoch_num}"]
 
-            # forward pass
-            self.stopwatch.start("forward")
-            output = self.net_forward(net, train=True, iter=iter)
-            if "cuda" in self.train_device:
-                torch.cuda.synchronize()
-            self.stopwatch.stop("forward")
+                # copy data
+                self.copy_data(data, device=self.train_device, train=True)
+                self.stopwatch.stop("data")
 
-            # evaluate loss, convert loss values to scalars
-            self.stopwatch.start("loss")
-            errs = self.loss_forward(output, train=True, iter=iter)
-            self.free_copied_data()
-            try:
-                err = sum(
-                    [v if torch.is_tensor(v) else sum(v) for v in errs.values()]
-                )
-                err_items = {}
-                for k in errs.keys():
-                    if torch.is_tensor(errs[k]):
-                        err_items[k] = errs[k].item()
-                    else:
-                        err_items[k] = [v.item() for v in errs[k]]
-                del errs
-                mean_loss.append(err_items)
-            except TypeError as type_error:
-                self.train_iter_messages.append(
-                    f"No loss computed due to TypeError: {type_error}"
-                )
+                # forward pass
+                self.stopwatch.start("forward")
+                output = self.net_forward(net, train=True, iter=iter)
+                #if "cuda" in self.train_device:
+                #    torch.cuda.synchronize()
+                self.stopwatch.stop("forward")
+
+                # evaluate loss, convert loss values to scalars
+                self.stopwatch.start("loss")
+                errs = self.loss_forward(output, train=True, iter=iter)
+                self.free_copied_data()
+                try:
+                    err = sum(
+                        [v if torch.is_tensor(v) else sum(v) for v in errs.values()]
+                    )
+                    err_items = {}
+                    for k in errs.keys():
+                        if torch.is_tensor(errs[k]):
+                            err_items[k] = errs[k].item()
+                        else:
+                            err_items[k] = [v.item() for v in errs[k]]
+                    del errs
+                    mean_loss.append(err_items)
+                except TypeError as type_error:
+                    self.train_iter_messages.append(
+                        f"No loss computed due to TypeError: {type_error}"
+                    )
+                    eta_total.inc()
+                    self.train_iter_messages.append(
+                        f"{self.save_frequency.n_resets}/{self.save_frequency.get_str(percentage=True, elapsed=False, remaining=True)}"
+                    )
+                    self.train_iter_messages.append(
+                        f"{eta_total.get_str(percentage=True, elapsed=True, remaining=True)}"
+                    )
+                    logging.info(" | ".join(self.train_iter_messages))
+                    continue
+                #if "cuda" in self.train_device:
+                #    torch.cuda.synchronize()
+                self.stopwatch.stop("loss")
+
+                # backward pass
+                self.stopwatch.start("backward")
+                if self.train_batch_acc_steps > 1:
+                    err = err / self.train_batch_acc_steps
+                err.backward()
+                with torch.no_grad():
+                    dist.all_reduce(err) 
+                    err /= self.world_size
+
+                #self.callback_train_post_backward(
+                #    net=net, errs=err_items, output=output, iter=iter
+                #)
+                #if "cuda" in self.train_device:
+                #    torch.cuda.synchronize()
+                self.stopwatch.stop("backward")
+
+                # optimizer step
+                optimizer_steped = False
+                if (iter + 1) % self.train_batch_acc_steps == 0:
+                    self.stopwatch.start("optimizer")
+                    if self.clip_gradient_value is not None:
+                        torch.nn.utils.clip_grad_value_(
+                            net.parameters(), self.clip_gradient_value
+                        )
+                    if self.clip_gradient_norm is not None:
+                        torch.nn.utils.clip_grad_norm_(
+                            net.parameters(), self.clip_gradient_norm
+                        )
+                    optimizer.step()
+                    optimizer.zero_grad()
+                    optimizer_steped = True
+                    #if "cuda" in self.train_device:
+                    #    torch.cuda.synchronize()
+                    self.stopwatch.stop("optimizer")
+
+                # evaluate frequencies
+                do_save = self.save_frequency.advance()
+                do_eval = self.eval_frequency.advance()
+
+                # show progress
                 eta_total.inc()
-                self.train_iter_messages.append(
-                    f"{self.save_frequency.n_resets}/{self.save_frequency.get_str(percentage=True, elapsed=False, remaining=True)}"
-                )
-                self.train_iter_messages.append(
-                    f"{eta_total.get_str(percentage=True, elapsed=True, remaining=True)}"
-                )
-                logging.info(" | ".join(self.train_iter_messages))
-                continue
-            if "cuda" in self.train_device:
-                torch.cuda.synchronize()
-            self.stopwatch.stop("loss")
-
-            # backward pass
-            self.stopwatch.start("backward")
-            if self.train_batch_acc_steps > 1:
-                err = err / self.train_batch_acc_steps
-            err.backward()
-            self.callback_train_post_backward(
-                net=net, errs=err_items, output=output, iter=iter
-            )
-            if "cuda" in self.train_device:
-                torch.cuda.synchronize()
-            self.stopwatch.stop("backward")
-
-            # optimizer step
-            optimizer_steped = False
-            if (iter + 1) % self.train_batch_acc_steps == 0:
-                self.stopwatch.start("optimizer")
-                if self.clip_gradient_value is not None:
-                    torch.nn.utils.clip_grad_value_(
-                        net.parameters(), self.clip_gradient_value
+                if (iter < 128 or iter % train_set.logging_rate == 0) and self.rank==0:
+                    err_str = self.format_err_str(err_items)
+                    self.train_iter_messages.append(
+                        f"loss={err_str} ({'y' if optimizer_steped else 'n'}{np.sum(mean_loss.vals_list()):0.4f})"
                     )
-                if self.clip_gradient_norm is not None:
-                    torch.nn.utils.clip_grad_norm_(
-                        net.parameters(), self.clip_gradient_norm
+                    self.train_iter_messages.append(
+                        f"{self.save_frequency.n_resets}/{self.save_frequency.get_str(percentage=True, elapsed=False, remaining=True)}"
                     )
-                optimizer.step()
-                optimizer.zero_grad()
-                optimizer_steped = True
-                if "cuda" in self.train_device:
-                    torch.cuda.synchronize()
-                self.stopwatch.stop("optimizer")
-
-            # evaluate frequencies
-            do_save = self.save_frequency.advance()
-            do_eval = self.eval_frequency.advance()
-
-            # show progress
-            eta_total.inc()
-            if iter < 128 or iter % train_set.logging_rate == 0:
-                err_str = self.format_err_str(err_items)
-                self.train_iter_messages.append(
-                    f"loss={err_str} ({'y' if optimizer_steped else 'n'}{np.sum(mean_loss.vals_list()):0.4f})"
-                )
-                self.train_iter_messages.append(
-                    f"{self.save_frequency.n_resets}/{self.save_frequency.get_str(percentage=True, elapsed=False, remaining=True)}"
-                )
-                self.train_iter_messages.append(
-                    f"{eta_total.get_str(percentage=True, elapsed=True, remaining=True)}"
-                )
-                logging.info(" | ".join(self.train_iter_messages))
-
-            self.stopwatch.stop("total")
-
-            # save state and network params
-            if do_save or iter == iter_range[-1]:
-                # store network
-                net_path = self.get_net_path(iter)
-                logging.info("-" * 80)
-                logging.info(f"save network to {net_path}")
-                torch.save(net.state_dict(), str(net_path))
-
-                # store state
-                state_dict = {
-                    "iter": iter,
-                    "state_dict": net.state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                    "cpu_rng_state": torch.get_rng_state(),
-                }
-                if torch.cuda.is_available():
-                    state_dict["gpu_rng_state"] = torch.cuda.get_rng_state()
-                state_tmp_path = self.exp_out_root / "state.dict.tmp"
-                logging.info(f"save state to {state_tmp_path}")
-                torch.save(state_dict, str(state_tmp_path))
-                logging.info(f"rename {state_tmp_path} to {state_path}")
-                state_tmp_path.rename(state_path)
-
-                # log avergae train loss and  average timing
-                self.metric_add_train(
-                    iter, "loss", np.sum(mean_loss.vals_list())
-                )
-                err_str = self.format_err_str(mean_loss.vals)
-                mean_loss.reset()
-                logging.info("-" * 80)
-                logging.info(f"avg train_loss={err_str}")
-                logging.info(f"timings: {self.stopwatch}")
-                logging.info("=" * 80)
-                self.stopwatch.reset()
-
-                # commit logger
-                self.db_logger.commit()
-
-            # eval network
-            if do_eval:
-                self.eval(
-                    iter, net, eval_sets, epoch=self.save_frequency.n_resets
-                )
-                net = net.to(self.train_device)
-                net.train()
-                logging.info("")
-                logging.info("=" * 80)
-
-            # update lr
-            if lr_scheduler is not None:
-                old_lr = lr_scheduler.get_lr()
-                lr_scheduler.step()
-                new_lr = lr_scheduler.get_lr()
-                if old_lr != new_lr:
-                    logging.info(
-                        f"Update LR {old_lr} => {new_lr} via lr_scheduler iter={iter}"
+                    self.train_iter_messages.append(
+                        f"{eta_total.get_str(percentage=True, elapsed=True, remaining=True)}"
                     )
+                    logging.info(" | ".join(self.train_iter_messages))
 
-            self.stopwatch.start("total")
-            self.stopwatch.start("data")
-            # end of iter loop
+                self.stopwatch.stop("total")
+
+                # save state and network params
+                if (do_save or idx == len(train_loader)-1 and epoch == epoch_num-1) and self.rank==0:
+                    # store network
+                    net_path = self.get_net_path(iter)
+                    logging.info("-" * 80)
+                    logging.info(f"save network to {net_path}")
+                    torch.save(net.state_dict(), str(net_path))
+
+                    # store state
+                    state_dict = {
+                        "iter": iter,
+                        "state_dict": net.state_dict(),
+                        "optimizer": optimizer.state_dict(),
+                        "cpu_rng_state": torch.get_rng_state(),
+                    }
+                    if torch.cuda.is_available():
+                        state_dict["gpu_rng_state"] = torch.cuda.get_rng_state()
+                    state_tmp_path = self.exp_out_root / "state.dict.tmp"
+                    logging.info(f"save state to {state_tmp_path}")
+                    torch.save(state_dict, str(state_tmp_path))
+                    logging.info(f"rename {state_tmp_path} to {state_path}")
+                    state_tmp_path.rename(state_path)
+
+                    # log avergae train loss and  average timing
+                    self.metric_add_train(
+                        iter, "loss", np.sum(mean_loss.vals_list())
+                    )
+                    err_str = self.format_err_str(mean_loss.vals)
+                    mean_loss.reset()
+                    logging.info("-" * 80)
+                    logging.info(f"avg train_loss={err_str}")
+                    logging.info(f"timings: {self.stopwatch}")
+                    logging.info("=" * 80)
+                    self.stopwatch.reset()
+
+                    # commit logger
+                    self.db_logger.commit()
+
+                # eval network
+                if do_eval and self.rank==0:
+                    self.eval(
+                        iter, net, eval_sets, epoch=self.save_frequency.n_resets
+                    )
+                    net = net.to(self.device)
+                    net.train()
+                    logging.info("")
+                    logging.info("=" * 80)
+
+                # update lr
+                if lr_scheduler is not None:
+                    old_lr = lr_scheduler.get_lr()
+                    lr_scheduler.step()
+                    new_lr = lr_scheduler.get_lr()
+                    if old_lr != new_lr:
+                        logging.info(
+                            f"Update LR {old_lr} => {new_lr} via lr_scheduler iter={iter}"
+                        )
+
+                self.stopwatch.start("total")
+                self.stopwatch.start("data")
+                # end of iter loop
+            if self.device != torch.device("cpu"):
+                torch.cuda.synchronize(self.device)
 
         logging.info("=" * 80)
         logging.info("Finished training")

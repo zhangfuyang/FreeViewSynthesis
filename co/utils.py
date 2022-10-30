@@ -22,7 +22,7 @@ def logging_setup(out_path=None):
     if logging.root:
         del logging.root.handlers[:]
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.INFO if 'tmp' not in str(out_path) else logging.ERROR,
         handlers=[
             logging.FileHandler(str(out_path)),
             logging.StreamHandler(stream=sys.stdout),
@@ -205,12 +205,20 @@ class CumulativeMovingAverage(object):
             if self.n == 0:
                 self.vals = {}
                 for k, v in x.items():
-                    self.vals[k] = np.array(v)
+                    if np.array(v).shape == ():
+                        self.vals[k] = np.array(v).item()
+                    else:
+                        self.vals[k] = np.array(v)
             else:
                 for k, v in x.items():
-                    self.vals[k] = (np.array(v) + self.n * self.vals[k]) / (
-                        self.n + 1
-                    )
+                    if np.array(v).shape == ():
+                        self.vals[k] = (np.array(v).item() + self.n * self.vals[k]) / (
+                            self.n + 1
+                        )
+                    else:
+                        self.vals[k] = (np.array(v) + self.n * self.vals[k]) / (
+                            self.n + 1
+                        )
         else:
             x = np.asarray(x)
             if self.n == 0:

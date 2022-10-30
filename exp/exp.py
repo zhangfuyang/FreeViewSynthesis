@@ -4,6 +4,7 @@ import sys
 import logging
 from pathlib import Path
 import PIL
+import os
 
 import dataset
 import modules
@@ -11,7 +12,14 @@ import modules
 sys.path.append("../")
 import co
 import ext
+import co.utils as coutils
 import config
+
+import torch.multiprocessing as mp
+from torch.multiprocessing import Process
+from co.mytorch import dist, cleanup
+
+import argparse
 
 
 class Worker(co.mytorch.Worker):
@@ -374,39 +382,6 @@ class Worker(co.mytorch.Worker):
             out_im = (255 * ta[b]).astype(np.uint8)
             PIL.Image.fromarray(out_im).save(out_dir / f"{bidx:04d}_ta.png")
 
-            # tgt_dm[tgt_dm >= 1e9] = np.NaN
-            # tgt_dm[tgt_dm <= 0] = np.NaN
-            # tgt_dm = co.plt.image_colorcode(tgt_dm)
-
-            # diff = np.abs(ta[b] - es[b]).max(axis=2)
-            # diff = co.plt.image_colorcode(diff, vmin=0, vmax=50 / 255)
-
-            # valid_depth_mask = (
-            #     self.data["valid_depth_masks"][b].detach().to("cpu").numpy()
-            # )
-            # valid_depth_mask = np.clip(valid_depth_mask.sum(axis=0), 0, 1)
-            # valid_depth_mask = co.plt.image_colorcode(
-            #     valid_depth_mask[0], vmin=0, vmax=1
-            # )
-
-            # valid_map_mask = (
-            #     self.data["valid_map_masks"][b].detach().to("cpu").numpy()
-            # )
-            # valid_map_mask = np.clip(valid_map_mask.sum(axis=0), 0, 1)
-            # valid_map_mask = co.plt.image_colorcode(
-            #     valid_map_mask[0], vmin=0, vmax=1
-            # )
-
-            # out_im = co.plt.image_cat2(
-            #     [
-            #         [ta[b], es[b]],
-            #         [tgt_dm, diff],
-            #         [valid_depth_mask, valid_map_mask],
-            #     ]
-            # )
-            # out_im = (255 * out_im).astype(np.uint8)
-            # PIL.Image.fromarray(out_im).save(out_dir / f"{bidx:04d}.jpg")
-
     def callback_eval_stop(self, **kwargs):
         eval_set = kwargs["eval_set"]
         iter = kwargs["iter"]
@@ -430,28 +405,38 @@ class Worker(co.mytorch.Worker):
                 )
 
 
-if __name__ == "__main__":
-    parser = co.mytorch.get_parser()
-    parser.add_argument("--net", type=str, required=True)
-    #parser.add_argument("--train-dsets", nargs="+", type=str, default=["tat"])
-    parser.add_argument("--train-dsets", nargs="+", type=str, default=["scannet"])
-    parser.add_argument(
-        "--eval-dsets", nargs="+", type=str, default=["scannet"]
-    )
-    #parser.add_argument(
-    #    "--eval-dsets", nargs="+", type=str, default=["tat", "tat-subseq"]
-    #)
-    parser.add_argument("--train-n-nbs", type=int, default=5)
-    parser.add_argument("--train-scale", type=float, default=0.25)
-    parser.add_argument("--train-patch", type=int, default=192)
-    parser.add_argument("--eval-n-nbs", type=int, default=5)
-    parser.add_argument("--eval-scale", type=float, default=-1)
-    parser.add_argument("--log-debug", type=str, nargs="*", default=[])
-    args = parser.parse_args()
+def main_func(rank, world_size, args):
+    if torch.cuda.is_available() is False:
+        raise EnvironmentError("not find GPU device for training.")
+    
+    os.environ["MASTER_ADDR"] = "localhost"
+    os.environ["MASTER_PORT"] = "12355"
+
+    args.rank = rank
+    args.world_size = world_size
+    args.gpu = rank
+
+    args.distributed = True
+
+    torch.cuda.set_device(args.gpu)
+    args.dist_backend = 'nccl'
+    print('| distributed init (rank {}): {}'.format(
+        args.rank, args.dist_url), flush=True)
+    
+    dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
+                            world_size=args.world_size, rank=args.rank)
+    dist.barrier()
+
+    rank = args.rank
+    device = torch.device(args.device)
 
     experiment_name = f"{'+'.join(args.train_dsets)}_nbs{args.train_n_nbs}_s{args.train_scale}_p{args.train_patch}_{args.net}"
-
     worker = Worker(
+        # distributed
+        rank=rank,
+        device=device,
+        world_size=args.world_size,
+        # 
         experiments_root=args.experiments_root,
         experiment_name=experiment_name,
         train_dsets=args.train_dsets,
@@ -464,58 +449,74 @@ if __name__ == "__main__":
         n_train_iters=750000,
     )
     worker.log_debug = args.log_debug
-    worker.save_frequency = co.mytorch.Frequency(hours=4)
-    worker.eval_frequency = co.mytorch.Frequency(hours=4)
+    
+    if rank == 0:
+        worker.save_frequency = co.mytorch.Frequency(hours=1)
+        worker.eval_frequency = co.mytorch.Frequency(hours=1)
+
     worker.train_batch_size = 1
     worker.eval_batch_size = 1
     worker.train_batch_acc_steps = 1
 
     worker_objects = co.mytorch.WorkerObjects(
-        optim_f=lambda net: torch.optim.Adam(net.parameters(), lr=1e-4)
+        optim_f=lambda net: torch.optim.Adam(net.parameters(), lr=1e-4 * world_size)
     )
 
-    if args.net == "fixed_identity_unet4.64.3":
-        worker_objects.net_f = lambda: modules.get_fixed_net(
-            enc_net="identity", dec_net="unet4.64.3", n_views=4
-        )
-        worker.train_n_nbs = 4
-        worker.eval_n_nbs = 4
-    elif args.net == "fixed_vgg16unet3_unet4.64.3":
-        worker_objects.net_f = lambda: modules.get_fixed_net(
-            enc_net="vgg16unet3", dec_net="unet4.64.3", n_views=4
-        )
-        worker.train_n_nbs = 4
-        worker.eval_n_nbs = 4
-    elif args.net == "aggr_vgg16unet3_unet4.64.3_mean":
-        worker_objects.net_f = lambda: modules.get_aggr_net(
-            enc_net="vgg16unet3", merge_net="unet4.64.3", aggr_mode="mean"
-        )
-    elif args.net == "rnn_identity_gruunet4.64.3":
-        worker_objects.net_f = lambda: modules.get_rnn_net(
-            enc_net="identity", merge_net="gruunet4.64.3"
-        )
-    elif args.net == "rnn_vgg16unet3_gruunet4.64.3_single":
-        worker_objects.net_f = lambda: modules.get_rnn_net(
-            enc_net="vgg16unet3", merge_net="gruunet4.64.3", mode="single"
-        )
-    elif args.net == "rnn_vgg16unet3_unet4.64.3":
-        worker_objects.net_f = lambda: modules.get_rnn_net(
-            enc_net="vgg16unet3", merge_net="unet4.64.3"
-        )
-    elif args.net == "rnn_vgg16unet3_gruunet4.64.3_nomasks":
-        worker_objects.net_f = lambda: modules.get_rnn_net(
-            enc_net="vgg16unet3", merge_net="gruunet4.64.3", cat_masks=False
-        )
-    elif args.net == "rnn_vgg16unet3_gruunet4.64.3_noinfdepth":
-        worker_objects.net_f = lambda: modules.get_rnn_net(
+    worker_objects.net_f = lambda: modules.get_rnn_net(
             enc_net="vgg16unet3", merge_net="gruunet4.64.3"
-        )
-        worker.invalid_depth_to_inf = False
-    elif args.net == "rnn_vgg16unet3_gruunet4.64.3":
-        worker_objects.net_f = lambda: modules.get_rnn_net(
-            enc_net="vgg16unet3", merge_net="gruunet4.64.3"
-        )
-    else:
-        raise Exception("invalid net in exp.py")
+    )
 
     worker.do(args, worker_objects)
+
+    cleanup()
+
+
+if __name__ == "__main__":
+    commands = ["retrain", "resume", "eval", "eval-init", "slurm"]
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--cmd", type=str, default="resume", choices=commands)
+    parser.add_argument("--log-env-info", type=coutils.str2bool, default=False)
+    parser.add_argument("--iter", type=str, nargs="*", default=[])
+    parser.add_argument("--eval-net-root", type=str, default="")
+    parser.add_argument("--experiments-root", type=str, default="./experiments_scannet")
+    parser.add_argument("--slurm-cmd", type=str, default="resume")
+    parser.add_argument("--slurm-queue", type=str, default="gpu")
+    parser.add_argument("--slurm-n-gpus", type=int, default=1)
+    parser.add_argument("--slurm-n-cpus", type=int, default=-1)
+    parser.add_argument(
+        "--slurm-time",
+        type=str,
+        default="2-00:00",
+        help='Acceptable time formats include "minutes", "minutes:seconds", "hours:minutes:seconds", "days-hours", "days-hours:minutes" and "days-hours:minutes:seconds"',
+    )
+    parser.add_argument("--net", type=str, required=True)
+    parser.add_argument("--train-dsets", nargs="+", type=str, default=["tat"])
+    #parser.add_argument("--train-dsets", nargs="+", type=str, default=["scannet"])
+    #parser.add_argument(
+    #    "--eval-dsets", nargs="+", type=str, default=["scannet"]
+    #)
+    parser.add_argument(
+        "--eval-dsets", nargs="+", type=str, default=["tat", "tat-subseq"]
+    )
+    parser.add_argument("--train-n-nbs", type=int, default=5)
+    parser.add_argument("--train-scale", type=float, default=0.25)
+    parser.add_argument("--train-patch", type=int, default=192)
+    parser.add_argument("--eval-n-nbs", type=int, default=5)
+    parser.add_argument("--eval-scale", type=float, default=-1)
+    parser.add_argument("--log-debug", type=str, nargs="*", default=[])
+    # initialization multi gpu
+    parser.add_argument("--world_size", default=2, type=int, help='number of distributed processes')
+    parser.add_argument('--dist-url', default='env://', help='url used to set up distributed training')
+    parser.add_argument('--device', default='cuda', help='device')
+
+    args = parser.parse_args()
+
+    world_size = args.world_size
+    processes = []
+    for rank in range(world_size):
+        p = Process(target=main_func, args=(rank, world_size, args))
+        p.start()
+        processes.append(p)
+    for p in processes:
+        p.join()
+
