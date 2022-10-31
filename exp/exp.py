@@ -488,6 +488,7 @@ if __name__ == "__main__":
     parser.add_argument("--log-env-info", type=coutils.str2bool, default=False)
     parser.add_argument("--iter", type=str, nargs="*", default=[])
     parser.add_argument("--eval-net-root", type=str, default="")
+    parser.add_argument("--pretrain-net-root", type=str, default="")
     parser.add_argument("--experiments-root", type=str, default="./experiments_scannet")
     parser.add_argument("--slurm-cmd", type=str, default="resume")
     parser.add_argument("--slurm-queue", type=str, default="gpu")
@@ -500,8 +501,8 @@ if __name__ == "__main__":
         help='Acceptable time formats include "minutes", "minutes:seconds", "hours:minutes:seconds", "days-hours", "days-hours:minutes" and "days-hours:minutes:seconds"',
     )
     parser.add_argument("--net", type=str, required=True)
-    parser.add_argument("--train-dsets", nargs="+", type=str, default=["tat"])
-    #parser.add_argument("--train-dsets", nargs="+", type=str, default=["scannet"])
+    #parser.add_argument("--train-dsets", nargs="+", type=str, default=["tat"])
+    parser.add_argument("--train-dsets", nargs="+", type=str, default=["scannet"])
     parser.add_argument(
         "--eval-dsets", nargs="+", type=str, default=["scannet"]
     )

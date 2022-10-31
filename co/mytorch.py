@@ -426,7 +426,7 @@ class Worker(object):
         self.log_experiment_start(type=args.cmd, log_env_info=args.log_env_info)
 
         if args.cmd == "retrain":
-            self.train(worker_objects, resume=False)
+            self.train(worker_objects, resume=False, pretrain=args.pretrain_net_root)
         elif args.cmd == "resume":
             self.train(worker_objects, resume=True)
         elif args.cmd == "eval":
@@ -746,7 +746,7 @@ class Worker(object):
             logging.info(f"avg eval_loss={err_str}")
             self.db_logger.commit()
 
-    def train(self, worker_objects, resume=False):
+    def train(self, worker_objects, resume=False, pretrain=""):
         train_set = self.get_train_set()
         eval_sets = self.get_eval_sets()
 
@@ -779,30 +779,47 @@ class Worker(object):
             if torch.cuda.is_available():
                 torch.cuda.set_rng_state(state["gpu_rng_state"].to("cpu"))
         else:
-            if self.rank == 0:
-                # store state
-                state_dict = {
-                    "iter": iter,
-                    "state_dict": net.state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                    "cpu_rng_state": torch.get_rng_state(),
-                }
-                if torch.cuda.is_available():
-                    state_dict["gpu_rng_state"] = torch.cuda.get_rng_state()
-                state_tmp_path = self.exp_out_root / "state.dict.tmp"
-                logging.info(f"save state to {state_tmp_path}")
-                torch.save(state_dict, str(state_tmp_path))
-                logging.info(f"rename {state_tmp_path} to {state_path}")
-                state_tmp_path.rename(state_path)
-            if self.world_size > 1:
-                dist.barrier()
-                state_path = self.checkpoint_root / "state.dict"
-                state = torch.load(str(state_path), map_location=self.device)
-                net.load_state_dict(state["state_dict"])
-                optimizer.load_state_dict(state["optimizer"])
-                torch.set_rng_state(state["cpu_rng_state"].to("cpu"))
-                if torch.cuda.is_available():
-                    torch.cuda.set_rng_state(state["gpu_rng_state"].to("cpu"))
+            if pretrain != "":
+                net_root = Path(pretrain)
+                net_paths = self.get_net_paths(net_root=net_root)
+                net_path, iter = net_paths['last']
+                logging.info(
+                    f"[PRETRAIN] loading net : {net_path}"
+                )
+                state_dict = torch.load(str(net_path), map_location=self.device)
+                new_state_dict = OrderedDict() # nn.DataParallel save issue
+                for k, v in state_dict.items():
+                    if k.split('.')[0] != 'module':
+                        new_state_dict[k] = v
+                    else:
+                        new_state_dict[k[7:]] = v
+
+                net.load_state_dict(new_state_dict)
+            else:
+                if self.rank == 0:
+                    # store state
+                    state_dict = {
+                        "iter": iter,
+                        "state_dict": net.state_dict(),
+                        "optimizer": optimizer.state_dict(),
+                        "cpu_rng_state": torch.get_rng_state(),
+                    }
+                    if torch.cuda.is_available():
+                        state_dict["gpu_rng_state"] = torch.cuda.get_rng_state()
+                    state_tmp_path = self.exp_out_root / "state.dict.tmp"
+                    logging.info(f"save state to {state_tmp_path}")
+                    torch.save(state_dict, str(state_tmp_path))
+                    logging.info(f"rename {state_tmp_path} to {state_path}")
+                    state_tmp_path.rename(state_path)
+                if self.world_size > 1:
+                    dist.barrier()
+                    state_path = self.checkpoint_root / "state.dict"
+                    state = torch.load(str(state_path), map_location=self.device)
+                    net.load_state_dict(state["state_dict"])
+                    optimizer.load_state_dict(state["optimizer"])
+                    torch.set_rng_state(state["cpu_rng_state"].to("cpu"))
+                    if torch.cuda.is_available():
+                        torch.cuda.set_rng_state(state["gpu_rng_state"].to("cpu"))
 
 
         # compute n_train_iters based on number of samples in train set
