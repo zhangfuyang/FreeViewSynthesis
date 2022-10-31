@@ -63,10 +63,7 @@ for scene in ['Barn', 'Caterpillar', 'Truck', 'Ignatius']:
     #tat_eval_tracks[‘intermediate/Playground’] = [221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252]
     #tat_eval_tracks[‘intermediate/Train’] = [174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243, 244, 245, 246, 247, 248]
 
-
-
-
-scannet_root = Path("/local-scratch/fuyang/freeview/scannet/")
+scannet_root = Path("/localhome/fuyangz/scannet_data2/")
 scannet_train_sets = [
     "scene0057_00", "scene0101_04", 
     "scene0147_00", "scene0241_01", 

@@ -13,6 +13,7 @@ sys.path.append("../")
 import co
 import ext
 import co.utils as coutils
+#import config_tst as config
 import config
 
 import torch.multiprocessing as mp
@@ -192,7 +193,7 @@ class Worker(co.mytorch.Worker):
         dset = self.get_pw_dataset(
             name=f'tat_{dset.replace("/", "_")}',
             ibr_dir=ibr_dir,
-            im_size=(288, 528),
+            im_size=(288, 528) if self.train_batch_size > 1 else None,
             pad_width=16,
             patch=(self.train_patch, self.train_patch),
             n_nbs=self.train_n_nbs,
@@ -243,8 +244,8 @@ class Worker(co.mytorch.Worker):
         dset = self.get_pw_dataset(
             name=f'tat_{mode}_{dset.replace("/", "_")}',
             ibr_dir=ibr_dir,
-            im_size=(288,528),
-            pad_width=16,
+            im_size=(288,528) if self.eval_batch_size>1 else None,
+            pad_width=16 if self.eval_batch_size>1 else None,
             patch=None,
             n_nbs=self.eval_n_nbs,
             nbs_mode="argmax",
@@ -265,7 +266,7 @@ class Worker(co.mytorch.Worker):
             name=f'scannet_{dset}',
             ibr_dir=_dir,
             im_size=None,
-            pad_width=16,
+            pad_width=16 if self.eval_batch_size > 1 else None,
             patch=None,
             n_nbs=self.eval_n_nbs,
             nbs_mode="argmax",
@@ -378,7 +379,7 @@ class Worker(co.mytorch.Worker):
                 out_im[tgt_dm <= 0] = 255
                 out_im[tgt_dm >= 1e6] = 255
             # PIL.Image.fromarray(out_im).save(out_dir / f"{bidx:04d}_es.png")
-            PIL.Image.fromarray(out_im).save(out_dir / f"s{bidx:04d}_es.jpg")
+            PIL.Image.fromarray(out_im).save(out_dir / f"s{bidx:04d}_es.png")
             out_im = (255 * ta[b]).astype(np.uint8)
             PIL.Image.fromarray(out_im).save(out_dir / f"{bidx:04d}_ta.png")
 
@@ -501,12 +502,12 @@ if __name__ == "__main__":
     parser.add_argument("--net", type=str, required=True)
     parser.add_argument("--train-dsets", nargs="+", type=str, default=["tat"])
     #parser.add_argument("--train-dsets", nargs="+", type=str, default=["scannet"])
-    #parser.add_argument(
-    #    "--eval-dsets", nargs="+", type=str, default=["scannet"]
-    #)
     parser.add_argument(
-        "--eval-dsets", nargs="+", type=str, default=["tat", "tat-subseq"]
+        "--eval-dsets", nargs="+", type=str, default=["scannet"]
     )
+    #parser.add_argument(
+    #    "--eval-dsets", nargs="+", type=str, default=["tat-subseq"]
+    #)
     parser.add_argument("--train-n-nbs", type=int, default=5)
     parser.add_argument("--train-scale", type=float, default=0.25)
     parser.add_argument("--train-patch", type=int, default=192)
@@ -517,7 +518,7 @@ if __name__ == "__main__":
     parser.add_argument("--our_loss", type=int, default=0)
 
     # initialization multi gpu
-    parser.add_argument("--world_size", default=2, type=int, help='number of distributed processes')
+    parser.add_argument("--world_size", default=1, type=int, help='number of distributed processes')
     parser.add_argument('--dist-url', default='env://', help='url used to set up distributed training')
     parser.add_argument('--device', default='cuda', help='device')
 

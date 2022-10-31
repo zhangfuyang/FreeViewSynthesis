@@ -13,6 +13,7 @@ import socket
 import sys
 import os
 import gc
+from collections import OrderedDict
 
 from . import utils
 from . import sqlite
@@ -621,7 +622,14 @@ class Worker(object):
                 state_dict = torch.load(
                     str(net_path), map_location=self.eval_device
                 )
-                net.load_state_dict(state_dict)
+                new_state_dict = OrderedDict() # nn.DataParallel save issue
+                for k, v in state_dict.items():
+                    if k.split('.')[0] != 'module':
+                        new_state_dict[k] = v
+                    else:
+                        new_state_dict[k[7:]] = v
+
+                net.load_state_dict(new_state_dict)
                 self.eval(iter, net, eval_sets)
             else:
                 logging.info(f"[EVAL] no network params for iter {iter_str}")
