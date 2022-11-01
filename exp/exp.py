@@ -36,6 +36,7 @@ class Worker(co.mytorch.Worker):
         eval_scale=-1,
         n_train_iters=750000,
         num_workers=8,
+        rand_top_k=None,
         **kwargs,
     ):
         super().__init__(
@@ -56,6 +57,7 @@ class Worker(co.mytorch.Worker):
         self.eval_scale = train_scale if eval_scale <= 0 else eval_scale
         self.bwd_depth_thresh = 0.01
         self.invalid_depth_to_inf = True
+        self.rand_top_k = rand_top_k
 
         self.train_loss = modules.VGGPerceptualLoss()
         if config.lpips_root:
@@ -75,6 +77,7 @@ class Worker(co.mytorch.Worker):
         nbs_mode,
         train,
         tgt_ind=None,
+        rand_top_k=None,
         n_max_sources=-1,
     ):
         logging.info(f"  create dataset for {name}")
@@ -118,6 +121,7 @@ class Worker(co.mytorch.Worker):
             im_size=im_size,
             pad_width=pad_width,
             patch=patch,
+            rand_top_k=rand_top_k,
             n_nbs=n_nbs,
             nbs_mode=nbs_mode,
             bwd_depth_thresh=self.bwd_depth_thresh,
@@ -217,7 +221,8 @@ class Worker(co.mytorch.Worker):
             n_nbs=self.train_n_nbs,
             nbs_mode=self.train_nbs_mode,
             train=True,
-            tgt_ind=None
+            tgt_ind=None,
+            rand_top_k=self.rand_top_k
         )
         return dset
 
@@ -248,7 +253,7 @@ class Worker(co.mytorch.Worker):
             pad_width=16 if self.eval_batch_size>1 else None,
             patch=None,
             n_nbs=self.eval_n_nbs,
-            nbs_mode="argmax",
+            nbs_mode=self.train_nbs_mode,
             tgt_ind=tgt_ind,
             train=False,
         )
@@ -269,9 +274,10 @@ class Worker(co.mytorch.Worker):
             pad_width=16 if self.eval_batch_size > 1 else None,
             patch=None,
             n_nbs=self.eval_n_nbs,
-            nbs_mode="argmax",
+            nbs_mode=self.train_nbs_mode,
             train=False,
-            tgt_ind=tgt_ind
+            tgt_ind=tgt_ind,
+            rand_top_k=self.rand_top_k
         )
         return dset
 
@@ -444,11 +450,13 @@ def main_func(rank, world_size, args):
         train_dsets=args.train_dsets,
         eval_dsets=args.eval_dsets,
         train_n_nbs=args.train_n_nbs,
+        train_nbs_mode=args.train_nbs_mode,
         train_scale=args.train_scale,
         train_patch=args.train_patch,
         eval_n_nbs=args.eval_n_nbs,
         eval_scale=args.eval_scale,
         n_train_iters=750000,
+        rand_top_k=args.rand_top_k
     )
     worker.log_debug = args.log_debug
     
@@ -517,6 +525,8 @@ if __name__ == "__main__":
     parser.add_argument("--eval-scale", type=float, default=-1)
     parser.add_argument("--log-debug", type=str, nargs="*", default=[])
     parser.add_argument("--our_loss", type=int, default=0)
+    parser.add_argument("--rand_top_k", type=int, default=20)
+    parser.add_argument('--train_nbs_mode', default='argmax')
 
     # initialization multi gpu
     parser.add_argument("--world_size", default=1, type=int, help='number of distributed processes')
@@ -537,3 +547,5 @@ if __name__ == "__main__":
         for p in processes:
             p.join()
 
+
+    parser.add_argument('--device', default='cuda', help='device')

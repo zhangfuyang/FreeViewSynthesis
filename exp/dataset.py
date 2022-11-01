@@ -46,6 +46,7 @@ class Dataset(co.mytorch.BaseDataset):
         im_size=None,
         pad_width=None,
         patch=None,
+        rand_top_k=None,
         n_nbs=5,
         nbs_mode="sample",
         bwd_depth_thresh=0.1,
@@ -71,6 +72,7 @@ class Dataset(co.mytorch.BaseDataset):
         self.pad_width = pad_width
         self.patch = patch
         self.n_nbs = n_nbs
+        self.rand_top_k = rand_top_k
         self.nbs_mode = nbs_mode
         self.bwd_depth_thresh = bwd_depth_thresh
         self.invalid_depth_to_inf = invalid_depth_to_inf
@@ -127,6 +129,11 @@ class Dataset(co.mytorch.BaseDataset):
             nbs = rng.choice(
                 count.shape[0], self.n_nbs, replace=False, p=count / count.sum()
             )
+        elif self.nbs_mode == "random_top":
+            nbs = np.argsort(count)[::-1]
+            nbs = nbs[: self.rand_top_k]
+            idx__ = rng.choice(nbs.shape[0], self.n_nbs, replace=False)
+            nbs = nbs[idx__]
         else:
             raise Exception("invalid nbs_mode")
 
