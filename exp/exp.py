@@ -546,6 +546,3 @@ if __name__ == "__main__":
             processes.append(p)
         for p in processes:
             p.join()
-
-
-    parser.add_argument('--device', default='cuda', help='device')
