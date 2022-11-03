@@ -274,7 +274,7 @@ class Worker(co.mytorch.Worker):
             pad_width=16 if self.eval_batch_size > 1 else None,
             patch=None,
             n_nbs=self.eval_n_nbs,
-            nbs_mode=self.train_nbs_mode,
+            nbs_mode="argmax",
             train=False,
             tgt_ind=tgt_ind,
             rand_top_k=self.rand_top_k
@@ -461,8 +461,8 @@ def main_func(rank, world_size, args):
     worker.log_debug = args.log_debug
     
     if rank == 0:
-        worker.save_frequency = co.mytorch.Frequency(hours=3)
-        worker.eval_frequency = co.mytorch.Frequency(hours=3)
+        worker.save_frequency = co.mytorch.Frequency(hours=2)
+        worker.eval_frequency = co.mytorch.Frequency(hours=2)
 
     worker.train_batch_size = args.batch_size
     worker.eval_batch_size = args.batch_size

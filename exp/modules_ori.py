@@ -611,20 +611,10 @@ class MappingRNN(nn.Module):
         if self.mode == "single":
             x = self.rgb_conv(y)
         elif self.mode == "softmax":
-            #rgbs = torch.stack(rgbs)
-            #alphas = torch.stack(alphas)
-            #alphas = torch.softmax(alphas, dim=0)
-            #x = (alphas * rgbs).sum(dim=0)
-            
-            rgbs = torch.stack(rgbs, dim=1)
-            alphas = torch.stack(alphas, dim=1)
-            alphas=alphas*valid_map_masks+torch.logical_not(valid_map_masks)*(-100000)
-            
-            alphas = torch.softmax(alphas, dim=1)
-            # mask_vis=((valid_map_masks.sum(dim=1)>0)[0,0]*255).cpu().numpy().astype(np.uint8)
-            # import pdb
-            # pdb.set_trace()
-            x = (alphas * rgbs).sum(dim=1)
+            rgbs = torch.stack(rgbs)
+            alphas = torch.stack(alphas)
+            alphas = torch.softmax(alphas, dim=0)
+            x = (alphas * rgbs).sum(dim=0)
             del rgbs, alphas
 
         return {"out": x}
@@ -636,7 +626,7 @@ class MappingRNN(nn.Module):
         valid_map_masks = kwargs["valid_map_masks"]
 
         bs, nv = x_all.shape[:2]
-        
+
         if self.cat_global_avg:
             x_mean = None
             for vidx in range(nv):
@@ -661,7 +651,7 @@ class MappingRNN(nn.Module):
                     x_mean = x / nv
                 else:
                     x_mean += x / nv
-        
+
         if self.cat_global_max:
             x_max = None
             for vidx in range(nv):
@@ -712,7 +702,7 @@ class MappingRNN(nn.Module):
                 x = torch.cat([x, x_max], dim=1)
 
             x, hs = self.merge_net(x, hs)
-            
+
             if self.mode == "softmax":
                 rgbs.append(self.rgb_conv(x))
                 alphas.append(self.alpha_conv(x))
@@ -723,12 +713,8 @@ class MappingRNN(nn.Module):
         elif self.mode == "softmax":
             rgbs = torch.stack(rgbs, dim=1)
             alphas = torch.stack(alphas, dim=1)
-            alphas=alphas*valid_map_masks+torch.logical_not(valid_map_masks)*(-100000)
-            
+            alphas = alphas*valid_depth_masks+torch.logical_not(valid_depth_masks)*(-100000)
             alphas = torch.softmax(alphas, dim=1)
-            # mask_vis=((valid_map_masks.sum(dim=1)>0)[0,0]*255).cpu().numpy().astype(np.uint8)
-            # import pdb
-            # pdb.set_trace()
             x = (alphas * rgbs).sum(dim=1)
             del rgbs, alphas
 
@@ -868,7 +854,6 @@ class AggrNet(nn.Module):
         return nn.Sequential(*mods)
 
     def forward(self, **kwargs):
-        
         x = kwargs["srcs"]
         sampling_maps = kwargs["sampling_maps"]
         valid_depth_masks = kwargs["valid_depth_masks"]
@@ -953,7 +938,7 @@ class AggrNet(nn.Module):
         x = self.rgb_conv(x)
         x = x.view(bs, nv, *x.shape[1:])
         x = (x * alpha).sum(dim=1)
-        
+
         return {"out": x}
 
 
