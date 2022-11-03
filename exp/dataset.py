@@ -123,6 +123,12 @@ class Dataset(co.mytorch.BaseDataset):
     def base_getitem(self, idx, rng):
         count = self.tgt_counts[idx]
         if self.nbs_mode == "argmax":
+            #nbs = np.argsort(count)[::-1]
+            #tt = np.where(count[nbs]>0)[0]
+            #if tt.shape[0] == 0:
+            #    nbs = nbs[: self.n_nbs]
+            #else:
+            #    nbs = nbs[tt]
             nbs = np.argsort(count)[::-1]
             nbs = nbs[: self.n_nbs]
         elif self.nbs_mode == "sample":

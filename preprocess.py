@@ -3,11 +3,12 @@ import os
 import shutil
 from PIL import Image
 import cv2
+from numpy.linalg import inv
 
 
 original_data_root = '/local-scratch/shitaot/generalized_nerf/data/scannet/'
 original_data_dir = os.path.join(original_data_root, 'train')
-output_data_dir = './processed_train'
+output_data_dir = './scannet_data_new_count_new_depth/processed_train'
 
 def filter_valid_id(data_dir, scene_name, id_list):
     empty_lst=[]
@@ -89,7 +90,7 @@ for scene_name in os.listdir(original_data_dir):
     if os.path.isdir(scene_path) is False:
         continue
     rgb_dir = os.path.join(scene_path, 'color')
-    depth_dir = os.path.join(scene_path, 'depth')
+    depth_dir = os.path.join(scene_path, 'depth_render_mvs')
     pose_dir = os.path.join(scene_path, 'pose') # extrinsic
 
     output_scene_path = os.path.join(output_data_dir, scene_name)
@@ -101,6 +102,13 @@ for scene_name in os.listdir(original_data_dir):
     all_id_lists = all_id_lists[::5]
 
     all_poses = []
+    start = int(len(all_id_lists) * 0.7)
+    tgt_ind = [x for x in range(start, len(all_id_lists))]
+    f = open(os.path.join(output_scene_path, f'test_id.txt'), 'w')
+    for i in range(len(tgt_ind)):
+        f.write(f'{i}:{all_id_lists[tgt_ind[i]]}\n')
+    f.close()
+
     for idx, id_ in enumerate(all_id_lists):
         # image
         src_dir = os.path.join(rgb_dir, f'{id_}.jpg') 
@@ -113,8 +121,9 @@ for scene_name in os.listdir(original_data_dir):
         #shutil.copy(src_dir,dst_dir)
 
         # dm.npy
-        im = Image.open(os.path.join(depth_dir, f'{id_}.png'))
-        dm = np.array(im) / 1000.
+        dm = cv2.imread(os.path.join(depth_dir, f'{id_}.png'), -1)
+        dm = cv2.resize(dm, (640, 480), cv2.INTER_NEAREST)
+        dm = np.array(dm) / 1000.
         np.save(os.path.join(output_scene_path, f'dm_{idx:08}'), dm)
 
 
@@ -123,7 +132,7 @@ for scene_name in os.listdir(original_data_dir):
         for line in f.readlines():
             row = [float(v.strip()) for v in line.split(' ')]
             pose.append(row)
-        pose = np.array(pose)
+        pose = inv(np.array(pose))
         all_poses.append(pose)
         f.close()
 
@@ -131,19 +140,19 @@ for scene_name in os.listdir(original_data_dir):
         if 'test' in original_data_dir:
             skip = True
             for tt in range(id_-3, id_+4):
-                if os.path.exists(os.path.join(scene_path, 'count', f'cnt_{tt}.npy')):
+                if os.path.exists(os.path.join(scene_path, 'count2', f'{tt}.npy')):
                     skip = False
             if skip:
                 count = np.zeros(len(all_id_lists))
                 np.save(os.path.join(output_scene_path, f'count_{idx:08}'), count)
                 continue
-        if os.path.exists(os.path.join(scene_path, 'count', f'cnt_{id_}.npy')):
-            dd = np.load(os.path.join(scene_path, 'count', f'cnt_{id_}.npy'), allow_pickle=True).tolist()
+        if os.path.exists(os.path.join(scene_path, 'count2', f'{id_}.npy')):
+            dd = np.load(os.path.join(scene_path, 'count2', f'{id_}.npy'), allow_pickle=True).tolist()
         else:
             for deta_id in [-1,+1,-2,+2,-3,+3,-4,+4,-5,+5]:
                 temp_id = deta_id + id_
-                if os.path.exists(os.path.join(scene_path, 'count', f'cnt_{temp_id}.npy')):
-                    dd = np.load(os.path.join(scene_path, 'count', f'cnt_{temp_id}.npy'), allow_pickle=True).tolist()
+                if os.path.exists(os.path.join(scene_path, 'count2', f'{temp_id}.npy')):
+                    dd = np.load(os.path.join(scene_path, 'count2', f'{temp_id}.npy'), allow_pickle=True).tolist()
                     break
         
         count = []
@@ -155,7 +164,7 @@ for scene_name in os.listdir(original_data_dir):
                 if 'test' in original_data_dir and other_id > id_:
                     overlap = 0
                 else:
-                    temp_idx = np.argmin(np.abs(dd['idx'] - other_id))
+                    temp_idx = np.argmin(np.abs(np.array(dd['idx']) - other_id))
                     overlap = dd['overlap_cnt'][temp_idx]
                 count.append(overlap)
         count = np.array(count)
@@ -175,7 +184,7 @@ for scene_name in os.listdir(original_data_dir):
     #    intrinsic[1, :] *= (self.height / ori_img_shape[1])
 
     # Ks.npy
-    f = open(os.path.join(scene_path, 'intrinsic', 'intrinsic_depth.txt'), 'r')
+    f = open(os.path.join(scene_path, 'intrinsic', 'intrinsic_color.txt'), 'r')
     k = []
     for line in f.readlines()[:-1]:
         row = [float(v) for v in line.split(' ')[:-1]]

@@ -35,7 +35,7 @@ class Worker(co.mytorch.Worker):
         eval_n_nbs=1,
         eval_scale=-1,
         n_train_iters=750000,
-        num_workers=8,
+        num_workers=10,
         rand_top_k=None,
         **kwargs,
     ):
@@ -55,8 +55,8 @@ class Worker(co.mytorch.Worker):
         self.train_patch = train_patch
         self.eval_n_nbs = eval_n_nbs
         self.eval_scale = train_scale if eval_scale <= 0 else eval_scale
-        self.bwd_depth_thresh = 0.01
-        self.invalid_depth_to_inf = True
+        self.bwd_depth_thresh = 100000
+        self.invalid_depth_to_inf = False
         self.rand_top_k = rand_top_k
 
         self.train_loss = modules.VGGPerceptualLoss()
