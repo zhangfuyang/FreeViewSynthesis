@@ -464,8 +464,8 @@ def main_func(rank, world_size, args):
     worker.log_debug = args.log_debug
     
     if rank == 0:
-        worker.save_frequency = co.mytorch.Frequency(hours=2)
-        worker.eval_frequency = co.mytorch.Frequency(hours=2)
+        worker.save_frequency = co.mytorch.Frequency(hours=3)
+        worker.eval_frequency = co.mytorch.Frequency(hours=3)
 
     worker.train_batch_size = args.batch_size
     worker.eval_batch_size = args.batch_size

@@ -6,6 +6,7 @@ import sys
 sys.path.append("../")
 import co
 import ext
+import random
 
 
 def load(p, height=None, width=None):
@@ -120,7 +121,7 @@ class Dataset(co.mytorch.BaseDataset):
     def base_len(self):
         return len(self.tgt_dm_paths)
 
-    def base_getitem(self, idx, rng):
+    def base_getitem(self, idx, rng, drop_near=True):
         count = self.tgt_counts[idx]
         if self.nbs_mode == "argmax":
             #nbs = np.argsort(count)[::-1]
@@ -136,8 +137,22 @@ class Dataset(co.mytorch.BaseDataset):
                 count.shape[0], self.n_nbs, replace=False, p=count / count.sum()
             )
         elif self.nbs_mode == "random_top":
-            nbs = np.argsort(count)[::-1]
+            if drop_near:
+                random_ratio=random.random()*0.3
+            else:
+                random_ratio=0
+            tot_num=int(count.shape[0]*random_ratio)
+            max_mask_num=(count>0).sum()//2-6
+            tot_num=min(tot_num, max_mask_num)
+            _count=count.copy()
+            l_idx=max(0, idx-tot_num)
+            r_idx=min(count.shape[0]-1, idx+tot_num)
+            _count[l_idx:r_idx]=-1
+            nbs = np.argsort(_count)[::-1]
             nbs = nbs[: self.rand_top_k]
+
+            #nbs = np.argsort(count)[::-1]
+            #nbs = nbs[: self.rand_top_k]
             idx__ = rng.choice(nbs.shape[0], self.n_nbs, replace=False)
             idx__ = np.sort(idx__)
             nbs = nbs[idx__]

@@ -84,7 +84,7 @@ scannet_train_sets = [
 "scene0005_00",  "scene0027_02",  "scene0044_01",  "scene0062_01",  
 "scene0084_01",  "scene0093_02",  "scene0102_00",  "scene0113_01",  
 "scene0140_00",  "scene0545_02",  "scene0013_02",  "scene0029_02",  
-"scene0047_00",  "scene0067_00",  "scene0085_00",  "scene0097_00",  
+"scene0047_00",  "scene0067_00",  "scene0085_00",  "scene0097_00", 
 "scene0102_01",  "scene0115_02",  "scene0140_01",  "scene0706_00",
 "scene0016_00",  "scene0038_02",  "scene0050_01",  "scene0072_01",  
 "scene0088_02",  "scene0101_00",  "scene0103_00",  "scene0120_01",  
