@@ -139,7 +139,15 @@ class Dataset(co.mytorch.BaseDataset):
             nbs = np.argsort(count)[::-1]
             nbs = nbs[: self.rand_top_k]
             idx__ = rng.choice(nbs.shape[0], self.n_nbs, replace=False)
+            idx__ = np.sort(idx__)
             nbs = nbs[idx__]
+        elif self.nbs_mode == "overlap":
+            nbs = np.argsort(count)[::-1]
+            tt = np.where(count[nbs]>0)[0]
+            if tt.shape[0] == 0:
+                nbs = nbs[: self.n_nbs]
+            else:
+                nbs = nbs[tt]
         else:
             raise Exception("invalid nbs_mode")
 
@@ -188,6 +196,28 @@ class Dataset(co.mytorch.BaseDataset):
             self.bwd_depth_thresh,
             self.invalid_depth_to_inf,
         )
+        if self.nbs_mode == "overlap" and nbs.shape[0]>self.n_nbs:
+            final_valid_mask = np.zeros_like(valid_map_masks[0])
+            valid_idx = []
+            for _ in range(self.n_nbs):
+                max_cover = 0
+                select_idx = _
+                for tt_i in range(valid_map_masks.shape[0]):
+                    if tt_i in valid_idx:
+                        continue
+                    new_mask = np.logical_or(final_valid_mask, valid_map_masks[tt_i])
+                    if new_mask.sum() > max_cover:
+                        select_idx = tt_i
+                        max_cover = new_mask.sum()
+                assert select_idx >= 0
+                final_valid_mask = np.logical_or(final_valid_mask, valid_map_masks[select_idx])
+                valid_idx.append(select_idx)
+            valid_idx = np.sort(valid_idx)
+            sampling_maps = sampling_maps[valid_idx]
+            valid_depth_masks = valid_depth_masks[valid_idx]
+            valid_map_masks = valid_map_masks[valid_idx]
+            nbs = nbs[valid_idx]
+
         ret["sampling_maps"] = sampling_maps
         ret["valid_depth_masks"] = valid_depth_masks
         ret["valid_map_masks"] = valid_map_masks

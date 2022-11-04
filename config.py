@@ -63,19 +63,36 @@ for scene in ['Barn', 'Caterpillar', 'Truck', 'Ignatius']:
     #tat_eval_tracks[‘intermediate/Playground’] = [221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252]
     #tat_eval_tracks[‘intermediate/Train’] = [174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243, 244, 245, 246, 247, 248]
 
-scannet_root = Path("/localhome/fuyangz/FreeViewSynthesis/scannet_data_new_count_new_depth/")
-scannet_train_sets = [
-    "scene0057_00", "scene0101_04", 
-    "scene0147_00", "scene0241_01", 
-    "scene0545_02", "scene0085_00",  
-    "scene0112_00", "scene0196_00",  
-    "scene0424_02", "scene0706_00"
-]
-
+#scannet_root = Path("/localhome/fuyangz/FreeViewSynthesis/scannet_data_new_count_new_depth/")
+scannet_root = Path("/localhome/fuyangz/FreeViewSynthesis/scannet_data_large/")
+#scannet_train_sets = [
+#    "scene0057_00", "scene0101_04", 
+#    "scene0147_00", "scene0241_01", 
+#    "scene0545_02", "scene0085_00",  
+#    "scene0112_00", "scene0196_00",  
+#    "scene0424_02", "scene0706_00"
+#]
 scannet_eval_sets = [
     "scene0707_00", "scene0709_00",  
     "scene0711_00", "scene0713_00",  
     "scene0715_00", "scene0708_00",  
     "scene0710_00", "scene0712_00",  
     "scene0714_00", "scene0716_00"
+]
+
+scannet_train_sets = [
+"scene0005_00",  "scene0027_02",  "scene0044_01",  "scene0062_01",  
+"scene0084_01",  "scene0093_02",  "scene0102_00",  "scene0113_01",  
+"scene0140_00",  "scene0545_02",  "scene0013_02",  "scene0029_02",  
+"scene0047_00",  "scene0067_00",  "scene0085_00",  "scene0097_00",  
+"scene0102_01",  "scene0115_02",  "scene0140_01",  "scene0706_00",
+"scene0016_00",  "scene0038_02",  "scene0050_01",  "scene0072_01",  
+"scene0088_02",  "scene0101_00",  "scene0103_00",  "scene0120_01",  
+"scene0147_00",  "scene0022_00",  "scene0039_00",  "scene0051_00",  
+"scene0074_02",  "scene0089_01",  "scene0101_03",  "scene0110_00",  
+"scene0121_00",  "scene0196_00",  "scene0024_00",  "scene0039_01",  
+"scene0054_00",  "scene0077_00",  "scene0092_02",  "scene0101_04",  
+"scene0111_02",  "scene0126_02",  "scene0241_01",  "scene0024_01",  
+"scene0042_01",  "scene0057_00",  "scene0080_02",  "scene0092_04",  
+"scene0101_05",  "scene0112_00",  "scene0134_02",  "scene0424_02",
 ]

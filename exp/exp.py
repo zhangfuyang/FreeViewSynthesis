@@ -30,6 +30,7 @@ class Worker(co.mytorch.Worker):
         eval_dsets="",
         train_n_nbs=1,
         train_nbs_mode="argmax",
+        eval_nbs_mode="overlap",
         train_scale=1,
         train_patch=192,
         eval_n_nbs=1,
@@ -51,6 +52,7 @@ class Worker(co.mytorch.Worker):
         self.eval_dsets = eval_dsets
         self.train_n_nbs = train_n_nbs
         self.train_nbs_mode = train_nbs_mode
+        self.eval_nbs_mode = eval_nbs_mode
         self.train_scale = train_scale
         self.train_patch = train_patch
         self.eval_n_nbs = eval_n_nbs
@@ -253,7 +255,7 @@ class Worker(co.mytorch.Worker):
             pad_width=16 if self.eval_batch_size>1 else None,
             patch=None,
             n_nbs=self.eval_n_nbs,
-            nbs_mode=self.train_nbs_mode,
+            nbs_mode=self.eval_nbs_mode,
             tgt_ind=tgt_ind,
             train=False,
         )
@@ -274,7 +276,7 @@ class Worker(co.mytorch.Worker):
             pad_width=16 if self.eval_batch_size > 1 else None,
             patch=None,
             n_nbs=self.eval_n_nbs,
-            nbs_mode="argmax",
+            nbs_mode=self.eval_nbs_mode,
             train=False,
             tgt_ind=tgt_ind,
             rand_top_k=self.rand_top_k
@@ -451,6 +453,7 @@ def main_func(rank, world_size, args):
         eval_dsets=args.eval_dsets,
         train_n_nbs=args.train_n_nbs,
         train_nbs_mode=args.train_nbs_mode,
+        eval_nbs_mode=args.eval_nbs_mode,
         train_scale=args.train_scale,
         train_patch=args.train_patch,
         eval_n_nbs=args.eval_n_nbs,
@@ -527,6 +530,7 @@ if __name__ == "__main__":
     parser.add_argument("--our_loss", type=int, default=0)
     parser.add_argument("--rand_top_k", type=int, default=20)
     parser.add_argument('--train_nbs_mode', default='argmax')
+    parser.add_argument('--eval_nbs_mode', default='overlap')
 
     # initialization multi gpu
     parser.add_argument("--world_size", default=1, type=int, help='number of distributed processes')
