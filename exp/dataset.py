@@ -158,11 +158,11 @@ class Dataset(co.mytorch.BaseDataset):
             nbs = nbs[idx__]
         elif self.nbs_mode == "overlap":
             nbs = np.argsort(count)[::-1]
-            tt = np.where(count[nbs]>0)[0]
-            if tt.shape[0] == 0:
+            valid_num = (count[nbs]>0).sum()
+            if valid_num < self.n_nbs:
                 nbs = nbs[: self.n_nbs]
             else:
-                nbs = nbs[tt]
+                nbs = nbs[: valid_num]
         else:
             raise Exception("invalid nbs_mode")
 
